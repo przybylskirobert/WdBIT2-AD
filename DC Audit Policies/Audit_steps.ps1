@@ -1,11 +1,12 @@
 Throw "this is not a robust file" 
 $location = Get-Location
-$ScriptsLocation =  "C:\Tools\WdBIT2-AD\DC Audit Policies"
+$ScriptsLocation =  "C:\WdBIT2-AD\DC Audit Policies"
 Set-Location $ScriptsLocation
-Import-Module ActiveDirectory3
+Import-Module ActiveDirectory
 
 #region import GPO
     $backupPath = "$ScriptsLocation\GPO Backup"
+    $dnsRoot = (get-addomain).DNSRoot
     $migTable = "gpo_backup_" + $((Get-ADDOmain).NetBIOSName) + ".migtable"
     $migTablePath = "$ScriptsLocation\Scripts\" + $migTable
     Copy-Item -Path $ScriptsLocation\Scripts\gpo_backup.migtable -Destination $migTablePath

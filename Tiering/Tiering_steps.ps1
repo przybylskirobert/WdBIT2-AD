@@ -1,7 +1,7 @@
 throw "This is not a robus script"
 $location = Get-Location
 $dNC = (Get-ADRootDSE).defaultNamingContext
-$ScriptsLocation =  "C:\Tools\WdBIT2-AD\Tiering"
+$ScriptsLocation =  "C:\WdBIT2-AD\Tiering"
 Set-Location $ScriptsLocation
 
 Import-Module ActiveDirectory
