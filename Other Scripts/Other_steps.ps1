@@ -55,3 +55,7 @@ Set-Location $location
 #region AccountCouldNotBeDelegated
 .$ScriptsLocation\Scripts\Set-AccountCannotBeDelegated.ps1 -OU 'OU=Accounts,OU=Tier0,OU=Admin' -Verbose 
 #endregion
+
+#region BGA
+.$ScriptsLocation\Scripts\Set-BGAPermissions.ps1 -BGAccount "Sekurak" -Verbose
+#endregion
