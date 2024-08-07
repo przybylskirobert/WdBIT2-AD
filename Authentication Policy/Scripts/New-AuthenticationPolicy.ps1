@@ -52,7 +52,7 @@ Get-ScheduledTask -TaskName $taskName | Start-ScheduledTask
  
 
 $taskName = "Update_AuthPolicy_$($PolicyName)_with_Computers"
-$argument = "-NoProfile -command " + '"$sids = @(); Get-ADGroupMember -Identity ' + $ComputersGroupName + ' | ForEach-Object {$sid = $_.SID.value; $sids += ' + '"""' + 'SID($sid)' + '"""}; if (($sids | Measure-Object).count -gt 1){$sidsj = $sids -join ' + '"""' + ',' + '"""' + '}else{$sidsj = $sids}; Set-ADAuthenticationPolicy -Identity Tier0PAW -UserAllowedToAuthenticateFrom ' + '"""' + 'O:SYG:SYD:(XA;OICI;CR;;;WD;(Member_of_any {$sidsj}))' + '"""'
+$argument = "-NoProfile -command " + '"$sids = @(); Get-ADGroupMember -Identity ' + $ComputersGroupName + ' | ForEach-Object {$sid = $_.SID.value; $sids += ' + '"""' + 'SID($sid)' + '"""}; if (($sids | Measure-Object).count -gt 1){$sidsj = $sids -join ' + '"""' + ',' + '"""' + '}else{$sidsj = $sids}; Set-ADAuthenticationPolicy -Identity ' + $PolicyName + ' -UserAllowedToAuthenticateFrom ' + '"""' + 'O:SYG:SYD:(XA;OICI;CR;;;WD;(Member_of_any {$sidsj}))' + '"""'
 $action = New-ScheduledTaskAction -Execute 'Powershell.exe' -Argument $argument
 $trigger =  New-ScheduledTaskTrigger -Daily -At 12am 
 $STPrin = New-ScheduledTaskPrincipal -GroupId "System" -RunLevel Highest
