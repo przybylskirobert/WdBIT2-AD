@@ -4,7 +4,7 @@ $ScriptsLocation =  "C:\WdBIT2-AD\Authentication Policy"
 Set-Location $ScriptsLocation
 Import-Module ActiveDirectory
 
-#region import GPO
+ #region import GPO
     $backupPath = "$ScriptsLocation\GPO Backup"
     $dnsRoot = (get-addomain).DNSRoot
     $migTable = "gpo_backup_" + $((Get-ADDOmain).NetBIOSName) + ".migtable"
@@ -24,8 +24,10 @@ $GpoLinks = @(
 Set-Location $location
 #endregion
 
+
 #region AuthPolicies
-.$ScriptsLocation\Scripts\New-AuthenticationPolicy.ps1 -PolicyName 'Tier0PAW' -ComputersGroupName 'Tier0PAWComputers' -UsersGroupName 'Domain Admins' -OUsToInclude  @("OU=Tier0,OU=Admin","OU=Domain Controllers") -BGAConfig $false -UserTGTLifetimeMins 121
-.$ScriptsLocation\Scripts\New-AuthenticationPolicy.ps1 -PolicyName 'Tier1PAW' -ComputersGroupName 'Tier1PAWComputers' -UsersGroupName 'Tier1PAWUser' -OUsToInclude  @("OU=Tier1,OU=Admin","OU=Tier 1 Servers") -BGAConfig $false -UserTGTLifetimeMins 121
-.$ScriptsLocation\Scripts\New-AuthenticationPolicy.ps1 -PolicyName 'Tier0SyncServers' -ComputersGroupName 'Tier0SyncServers' -UsersGroupName 'Tier0ReplicationMaintenance' -OUsToInclude  @("OU=Synchronisation,OU=Tier0 Servers,OU=Tier0,OU=Admin","OU=Domain Controllers") -BGAConfig $false -UserTGTLifetimeMins 121
+.$ScriptsLocation\Scripts\New-AuthenticationPolicy.ps1 -PolicyName 'Tier0PAW' -ComputersGroupName 'Tier0PAWComputers' -UsersGroupName 'Domain Admins' -OUsToInclude  @("OU=Tier0,OU=Admin","OU=Domain Controllers") -UserTGTLifetimeMins 121
+.$ScriptsLocation\Scripts\New-AuthenticationPolicy.ps1 -PolicyName 'Tier1PAW' -ComputersGroupName 'Tier1PAWComputers' -UsersGroupName 'Tier1PAWUser' -OUsToInclude  @("OU=Tier1,OU=Admin","OU=Tier 1 Servers") -UserTGTLifetimeMins 121
+.$ScriptsLocation\Scripts\New-AuthenticationPolicy.ps1 -PolicyName 'Tier0SyncServers' -ComputersGroupName 'Tier0SyncServers' -UsersGroupName 'Tier0ReplicationMaintenance' -OUsToInclude  @("OU=Synchronisation,OU=Tier0 Servers,OU=Tier0,OU=Admin","OU=Domain Controllers") -UserTGTLifetimeMins 121
 #endRegion
+ 
