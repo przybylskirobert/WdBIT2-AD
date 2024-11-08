@@ -1,47 +1,80 @@
-param (
+ param (
     [string] $PolicyName,
     [string] $ComputersGroupName,
     [string] $UsersGroupName,
     [string[]] $OUsToInclude,
-    [switch] $BGAConfig = $false,
-    [int] $UserTGTLifetimeMins = 121,
+     [int] $UserTGTLifetimeMins = 121,
     [string] $Description = "Assigned principals can authenticate to specific resources"
 
 )
 
 $dsnAME = (Get-ADDomain).distinguishedname
 
-if ($BGAConfig -ne $true){
-    $taskName = "Update_group_$($ComputersGroupName)_with_Computers"
-    $argument = "-NoProfile -command " + '"$OUs = @(' + "'" + $OUsToInclude[0] + "," + $dsnAME + "'" + ",'" + $OUsToInclude[1] + "," + $dsnAME + "')" +  '; $OUs | foreach { Get-ADComputer -Filter * -SearchBase $_} | ForEach-Object {Add-ADGroupMember -Identity ' + $ComputersGroupName + ' -Members $_.SamAccountName}' + '"'
-    $action = New-ScheduledTaskAction -Execute 'Powershell.exe' -Argument $argument
-    $trigger =  New-ScheduledTaskTrigger -Daily -At 12am 
-    $STPrin = New-ScheduledTaskPrincipal -GroupId "System" -RunLevel Highest
-    Write-Host "Creating Scheduled task '$taskName' to update group '$ComputersGroupName' with objects from the following OUs: '$OUsToInclude[0]', '$OUsToInclude[1]'" -ForegroundColor Green
-    Write-Verbose 'Register-ScheduledTask -Action $action -Trigger $trigger -TaskName $taskName -Principal $STPrin -Description "Update group $ComputersGroupName with objects from Ous: $OUsToInclude[0], $OUsToInclude[1]"'
-    Register-ScheduledTask -Action $action -Trigger $trigger -TaskName $taskName -Principal $STPrin -Description "Update group '$ComputersGroupName' with objects from Ous: '$OUsToInclude[0]', '$OUsToInclude[1]'"
-    Get-ScheduledTask -TaskName $taskName | Start-ScheduledTask
+$siloDN = $null
+$siloname = $null
+$authPolicyDN = $null
+$authNPolicySiloMembers = $null
+$userAllowedToAuthenticateFrom  = $null
+
+$policyExists = $false
+try {
+    Get-ADAuthenticationPolicy -Identity $PolicyName | Out-Null
+}
+catch {
+    $policyExists = $true
 }
 
-Write-Host "Creating new AuthenticationPolicy '$PolicyName' with UserTGTLifetimeMins '$UserTGTLifetimeMins'" -ForegroundColor Green
-Write-Verbose 'New-ADAuthenticationPolicy -Name $PolicyName -Description $Description  -UserTGTLifetimeMins $UserTGTLifetimeMins -ProtectedFromAccidentalDeletion $true -Enforce'
-New-ADAuthenticationPolicy -Name $PolicyName -Description $Description  -UserTGTLifetimeMins $UserTGTLifetimeMins -ProtectedFromAccidentalDeletion $true -Enforce
-$sids = @()
-Get-ADGroupMember -Identity $ComputersGroupName | ForEach-Object {
-    $sid = $_.SID.value
-    $sids += "SID($sid)"
+if ($policyExists -ne $false){
+    Write-Host "Creating new AuthenticationPolicy '$PolicyName' with UserTGTLifetimeMins '$UserTGTLifetimeMins'" -ForegroundColor Green
+    Write-Verbose 'New-ADAuthenticationPolicy -Name $PolicyName -Description $Description  -UserTGTLifetimeMins $UserTGTLifetimeMins -ProtectedFromAccidentalDeletion $true -Enforce'
+    New-ADAuthenticationPolicy -Name $PolicyName -Description $Description  -UserTGTLifetimeMins $UserTGTLifetimeMins -ProtectedFromAccidentalDeletion $true -Enforce
 }
-if (($sids | Measure-Object).count -gt 1){$sidsj = $sids -join ", "}else{$sidsj = $sids}
+else {
+    Write-Host "Authentication Policy '$PolicyName' already exists" -ForegroundColor Yellow
+}
 
-Write-Host  "Adding members from group '$ComputersGroupName' to User Sign On section under Authentication Policy '$PolicyName'" -ForegroundColor Green
-Write-Verbose '$userAllowedToAuthenticateFrom = "O:SYG:SYD:(XA;OICI;CR;;;WD;(Member_of_any {" + $sidsj + "}))"'
-$userAllowedToAuthenticateFrom = "O:SYG:SYD:(XA;OICI;CR;;;WD;(Member_of_any {" + $sidsj + "}))"
-Write-Verbose 'Set-ADAuthenticationPolicy -Identity $PolicyName -UserAllowedToAuthenticateFrom  $userAllowedToAuthenticateFrom'
-Set-ADAuthenticationPolicy -Identity $PolicyName -UserAllowedToAuthenticateFrom  $userAllowedToAuthenticateFrom
+$siloName = $PolicyName + "_Silo"
+$authPolicyDN = (Get-ADAuthenticationPolicy $PolicyName).DistinguishedName
+$authNPolicySiloMembers = @()
+$authNPolicySiloMembers += (Get-ADGroupMember -Identity $UsersGroupName).distinguishedName
+$authNPolicySiloMembers += (Get-ADGroupMember -Identity $ComputersGroupName).distinguishedName
+
+$siloExists = $false
+try {
+Get-ADAuthenticationPolicySilo -Identity $siloName | Out-Null
+}
+catch {
+    $siloExists = $true
+}
+
+$siloDN = (Get-ADAuthenticationPolicySilo $siloName).DistinguishedName
+if ($siloExists -ne $false){
+    Write-Host "Creating new AuthenticationPolicySilo '$siloName'" -ForegroundColor Green
+    Write-Verbose 'New-ADAuthenticationPolicySilo -Name $siloName  -OtherAttributes:@{"msDS-ComputerAuthNPolicy"= $authPolicyDN;"msDS-ServiceAuthNPolicy" = $authPolicyDN; ;"msDS-UserAuthNPolicy" = $authPolicyDN}  -ProtectedFromAccidentalDeletion $true'
+    Write-Verbose 'Set-ADObject -Add:@{"msDS-AuthNPolicySiloMembers"= $authNPolicySiloMembers } -Identity $authPolicyDN'
+    New-ADAuthenticationPolicySilo -Name $siloName  -OtherAttributes:@{"msDS-ComputerAuthNPolicy"= $authPolicyDN;"msDS-ServiceAuthNPolicy" = $authPolicyDN; ;"msDS-UserAuthNPolicy" = $authPolicyDN}  -ProtectedFromAccidentalDeletion $true 
+    Set-ADObject  -Identity $siloDN -Add:@{'msDS-AuthNPolicySiloMembers'= $authNPolicySiloMembers }
+}
+else {
+    Write-Host "Authentication Policy Silo '$siloName' already exists"  -ForegroundColor Yellow
+}
+
+foreach ($entry in $authNPolicySiloMembers){ 
+    Write-Host "Updating AD Account '$entry' with AuthenticationPolicySiloPolicy '$siloDN'"  -ForegroundColor Green
+    Write-Verbose 'Set-ADAccountAuthenticationPolicySilo -AuthenticationPolicySilo $siloDN -Identity $entry'
+    Set-ADAccountAuthenticationPolicySilo -AuthenticationPolicySilo $siloDN -Identity $entry
+}
+
+
+$userAllowedToAuthenticateFrom = 'O:SYG:SYD:(XA;OICI;CR;;;WD;(@USER.ad://ext/AuthenticationSilo == ' + '"' + $siloName + '"' + "))"
+Set-ADAuthenticationPolicy -Identity $PolicyName -UserAllowedToAuthenticateFrom $userAllowedToAuthenticateFrom -UserTGTLifetimeMins $UserTGTLifetimeMins
 Get-ADAuthenticationPolicy -Identity $PolicyName | Set-ADAuthenticationPolicy -Enforce $false
+Get-ADAuthenticationPolicySilo -Identity $siloName| Set-ADAuthenticationPolicySilo -Enforce $false
 
-$taskName = "Update_AuthPolicy_$($PolicyName)_with_Users"
-$argument = "-NoProfile -command " + '"' + "& Get-ADGroupMember -Recursive -Identity " + "'" + $UsersGroupName + "'" + "| ForEach-Object {Set-ADAccountAuthenticationPolicySilo -AuthenticationPolicy " + $PolicyName + " -Identity " + '$_' + ".SamAccountName}" + '"'
+$authNPolicySiloMembers = '"' + ($authNPolicySiloMembers -join ', ') + '"'
+$taskName = "Update_AuthPolicy_$($PolicyName)_objects"
+#$argument = "-NoProfile -command " + '" & $authNPolicySiloMembers = @() ;$authNPolicySiloMembers += (Get-ADGroupMember -Identity ' + "'" + $UsersGroupName + "'" + ').distinguishedName ; $authNPolicySiloMembers += (Get-ADGroupMember -Identity ' + "'" +  $ComputersGroupName + "'" + ').distinguishedName ; foreach ($entry in $authNPolicySiloMembers){ Set-ADObject  -Identity ' + "'" + $siloDN + "'" +" -Add:@{'msDS-AuthNPolicySiloMembers'= " + '$entry} ; Set-ADAccountAuthenticationPolicySilo -AuthenticationPolicySilo ' + "'" + $siloDN + "'" + '-Identity $entry }'
+$argument = "-NoProfile -command " + '" & $authNPolicySiloMembers = @() ; $authNPolicySiloMembers += (Get-ADGroupMember -Identity ' + "'" + $UsersGroupName + "'" + ').distinguishedName ;  $authNPolicySiloMembers += (Get-ADGroupMember -Identity ' + "'" +  $ComputersGroupName + "'" + ').distinguishedName ;' + 'Set-ADObject  -Identity ' + "'" + $siloDN + "'" + ' -Add:@{' + "'" + 'msDS-AuthNPolicySiloMembers' + "'" + ' = ' + '$authNPolicySiloMembers' + ' } ;' + 'foreach ($entry in $authNPolicySiloMembers){ Set-ADObject  -Identity ' + "'" + $siloDN + "'" +" -Add:@{'msDS-AuthNPolicySiloMembers'= " + '$entry} ; Set-ADAccountAuthenticationPolicySilo -AuthenticationPolicySilo ' + "'" + $siloDN + "'" + '-Identity $entry ; }' + '"'
 $action = New-ScheduledTaskAction -Execute 'Powershell.exe' -Argument $argument
 $trigger =  New-ScheduledTaskTrigger -Daily -At 12am 
 $STPrin = New-ScheduledTaskPrincipal -GroupId "System" -RunLevel Highest
@@ -49,14 +82,3 @@ Write-Host "Creating Scheduled task '$taskName' to update authentication policy 
 Write-Verbose 'Register-ScheduledTask -Action $action -Trigger $trigger -TaskName $taskName -Principal $STPrin -Description "Update Authentication policy $PolicyName users with $UsersGroupName members"'
 Register-ScheduledTask -Action $action -Trigger $trigger -TaskName $taskName -Principal $STPrin -Description "Update Authentication policy '$PolicyName' users with '$UsersGroupName' members"
 Get-ScheduledTask -TaskName $taskName | Start-ScheduledTask 
- 
-
-$taskName = "Update_AuthPolicy_$($PolicyName)_with_Computers"
-$argument = "-NoProfile -command " + '"$sids = @(); Get-ADGroupMember -Identity ' + $ComputersGroupName + ' | ForEach-Object {$sid = $_.SID.value; $sids += ' + '"""' + 'SID($sid)' + '"""}; if (($sids | Measure-Object).count -gt 1){$sidsj = $sids -join ' + '"""' + ',' + '"""' + '}else{$sidsj = $sids}; Set-ADAuthenticationPolicy -Identity ' + $PolicyName + ' -UserAllowedToAuthenticateFrom ' + '"""' + 'O:SYG:SYD:(XA;OICI;CR;;;WD;(Member_of_any {$sidsj}))' + '"""'
-$action = New-ScheduledTaskAction -Execute 'Powershell.exe' -Argument $argument
-$trigger =  New-ScheduledTaskTrigger -Daily -At 12am 
-$STPrin = New-ScheduledTaskPrincipal -GroupId "System" -RunLevel Highest
-Write-Host "Creating Scheduled task '$taskName' to update authentication policy '$PolicyName' with computers from the group '$ComputersGroupName'" -ForegroundColor Green
-Write-Verbose 'Register-ScheduledTask -Action $action -Trigger $trigger -TaskName $taskName -Principal $STPrin -Description "Update Authentication policy $PolicyName users with $ComputersGroupName members"'
-Register-ScheduledTask -Action $action -Trigger $trigger -TaskName $taskName -Principal $STPrin -Description "Update Authentication policy '$PolicyName' users with '$ComputersGroupName' members"
-Get-ScheduledTask -TaskName $taskName | Start-ScheduledTask
